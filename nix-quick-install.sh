@@ -95,6 +95,7 @@ esac
 NIX_CONF_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/nix/nix.conf"
 mkdir -p "$(dirname "$NIX_CONF_FILE")"
 touch "$NIX_CONF_FILE"
+chmod 600 "$NIX_CONF_FILE"
 if [ -n "${NIX_CONF:-}" ]; then
   printenv NIX_CONF > "$NIX_CONF_FILE"
 fi
