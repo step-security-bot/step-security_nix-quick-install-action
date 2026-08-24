@@ -1,0 +1,66 @@
+name: CI/CD
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        os: ${{ github.actor == 'dependabot[bot]' && fromJSON('["ubuntu-latest"]') || fromJSON('["ubuntu-22.04", "ubuntu-24.04-arm", "macos-15", "macos-15-intel"]') }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./
+        with:
+          nix_archives_url: https://github.com/nixbuild/nix-quick-install-action/releases/download/v35
+          nix_version: 2.34.7
+      - uses: cachix/cachix-action@v17
+        with:
+          name: nixos-quick-install-action
+      - name: Build nix archives
+        id: build-nix-archives
+        run: |
+          nix build .#nix-archives
+          echo "result=$(readlink result)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nix-archives-${{ runner.os }}-${{ runner.arch }}
+          path: ${{ steps.build-nix-archives.outputs.result }}/
+
+  test:
+    needs: build
+    strategy:
+      fail-fast: true
+      matrix:
+        os: ${{ github.actor == 'dependabot[bot]' && fromJSON('["ubuntu-latest"]') || fromJSON('["ubuntu-22.04", "ubuntu-24.04-arm", "macos-15", "macos-15-intel"]') }}
+        nix_version: ${{ github.actor == 'dependabot[bot]' && fromJSON('["2.34.7"]') || fromJSON('["2.3.18", "2.28.7", "2.29.4", "2.30.5", "2.31.5", "2.32.8", "2.33.6", "2.34.7"]') }}
+        exclude: "${{ github.actor != 'dependabot[bot]' && fromJSON('[{\"os\": \"ubuntu-24.04-arm\", \"nix_version\": \"2.3.18\"}]') || fromJSON('[]') }}"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        id: nix-archives
+        with:
+          name: nix-archives-${{ runner.os }}-${{ runner.arch }}
+      - uses: ./
+        with:
+          nix_archives_url: file://${{steps.nix-archives.outputs.download-path}}
+          nix_version: ${{ matrix.nix_version }}
+          nix_on_tmpfs: true
+      - name: Test nix
+        run: nix-build -v --version
+      - name: Add to store
+        run: |
+          file="$RANDOM"
+          echo "$RANDOM" > "$file"
+          path="$(nix-store --add "./$file")"
+
